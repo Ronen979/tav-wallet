@@ -21,10 +21,11 @@ Base `https://restservices.mltp.co.il/api/MyVouchers/`, all `POST` JSON, `compan
 ## Status
 - App built and tested end-to-end against the real account (30 vouchers, 50 purchases loaded, scan view works).
 - Local preview: `python -m http.server 8765` in this folder, then http://localhost:8765.
-- Git repo initialised on `main`, nothing committed yet. No git identity is set: use the GitHub noreply address (`<username>@users.noreply.github.com`) so the personal email stays out of the public history.
+- Deployed (2026-10-11): public repo https://github.com/Ronen979/tav-wallet, GitHub Pages from `main` / root at https://ronen979.github.io/tav-wallet/. Pushing to `main` redeploys.
+- Repo-local git identity uses the noreply address `199085156+Ronen979@users.noreply.github.com` so the personal email stays out of the public history. `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (not on PATH) and logged in as Ronen979.
 
 ## Next step
-Deploy to GitHub Pages: create a public repo `tav-wallet`, commit, push, enable Pages (Settings → Pages → Deploy from branch → `main` / root). Then open `https://<username>.github.io/tav-wallet` on the phone and add it to the home screen.
+Open https://ronen979.github.io/tav-wallet/ on the phone and add it to the home screen.
 
 ## Rules
 - Never commit personal data: phone numbers, voucher codes, SMS links.
