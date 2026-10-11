@@ -310,23 +310,26 @@ async function refreshActivity(link) {
 /* ---------- sync flow ---------- */
 let busy = false, otpLink = "", otpMode = "mycards", regToken = "";
 
-async function sync() {
+/* auto = the check on app open: if a code is needed, keep showing saved data and wait for the user to tap refresh. */
+async function sync(auto) {
   if (busy) return;
   if (!S.links.length) { render(); return; }
   busy = true; showMsg(); setSync(true, "בודק…");
   try {
     const candidates = [S.latestLink, ...S.links.slice().reverse()].filter((l, i, a) => l && a.indexOf(l) === i);
     let needOtp = null;
-    for (const link of candidates) {
+    for (const [n, link] of candidates.entries()) {
+      if (n) setSync(true, `בודק קישור ${n + 1}/${candidates.length}`);
       const d = await getData(link);
       const id = d.resultInfo && d.resultInfo.resultId;
       if (id === 0) { await finish(d, link); return; }
-      // The session belongs to the phone, so one expired link means they all are: go straight to OTP.
-      if (id === 604 || id === 602) { needOtp = { link, mode: id === 602 ? "register" : "mycards" }; break; }
+      // Keep trying the other saved links: any one with a live session avoids the SMS code.
+      if ((id === 604 || id === 602) && !needOtp) needOtp = { link, mode: id === 602 ? "register" : "mycards" };
       if (id === 429) throw new Error("יותר מדי ניסיונות. כדאי לנסות שוב בעוד כמה דקות.");
     }
     if (!needOtp) throw new Error("אף אחד מהקישורים לא תקין. אפשר להוסיף בהגדרות הודעת הזמנה עדכנית.");
     otpLink = needOtp.link; otpMode = needOtp.mode;
+    if (auto === true && S.vouchers.length) { showMsg("info", "מוצגים הנתונים השמורים. כדי לעדכן, לוחצים על רענון ומקבלים קוד ב-SMS."); return; }
     openOtp();
   } catch (e) {
     showMsg("err", e.message || "אין חיבור לרשת");
@@ -553,7 +556,7 @@ document.addEventListener("click", e => {
   if (e.target.id === "moreTx") { $("txList").dataset.all = "1"; render(); }
 });
 $("scanClose").onclick = closeScan;
-$("syncBtn").onclick = sync;
+$("syncBtn").onclick = () => sync();
 $("onboardBtn").onclick = () => {
   const links = extractLinks($("smsIn").value);
   if (!links.length && !S.links.length) { showMsg("err", "לא נמצא בטקסט קישור של mycards.mltp.co.il"); return; }
@@ -577,7 +580,7 @@ $("wipeYes").onclick = () => { S = blank(); save(); $("wipeConfirm").hidden = tr
 document.addEventListener("keydown", e => { if (e.key === "Escape") { closeScan(); closeOtp(); } });
 
 render();
-if (S.links.length && (!S.lastSync || Date.now() - S.lastSync > 30 * 60000)) sync();
+if (S.links.length && (!S.lastSync || Date.now() - S.lastSync > 30 * 60000)) sync(true);
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
