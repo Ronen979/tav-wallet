@@ -1,5 +1,5 @@
 // Offline shell: the app and its libraries load from cache so the code is available in the store without reception.
-const CACHE = "tav-wallet-v1";
+const CACHE = "tav-wallet-v2";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./icon.svg",
   "https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js",

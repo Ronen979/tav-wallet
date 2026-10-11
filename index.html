@@ -179,6 +179,10 @@ details[open]>summary::after{transform:rotate(90deg)}
           </div>
           <div class="sub" id="linkInfo" style="font-size:13px"></div>
           <div>
+            <label>ייצוא לאקסל</label>
+            <div class="actions"><button class="btn-ghost" id="exportTx" type="button">היסטוריית מימושים</button><button class="btn-ghost" id="exportVouchers" type="button">רשימת תווים</button></div>
+          </div>
+          <div>
             <button class="btn-plain" id="wipeBtn" type="button" style="color:var(--bad);padding-inline:0">מחיקת כל הנתונים מהמכשיר</button>
             <div id="wipeConfirm" hidden class="actions">
               <button class="btn" id="wipeYes" type="button" style="background:var(--bad);color:#fff">כן, למחוק</button>
@@ -504,6 +508,38 @@ function openScan(id) {
 }
 function closeScan() { $("scan").hidden = true; if (wake) { wake.release().catch(() => {}); wake = null; } }
 
+/* ---------- export (CSV with BOM so Excel reads the Hebrew) ---------- */
+const csvCell = x => { let s = x == null ? "" : String(x); if (/^[=+\-@]/.test(s) && isNaN(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+const csvDate = s => isDate(s) ? String(s).replace("T", " ").replace(/\.\d+/, "").slice(0, 19) : "";
+async function exportCsv(name, head, rows) {
+  if (!rows.length) { showMsg("err", "אין עדיין נתונים לייצוא. צריך לרענן קודם."); return; }
+  const text = "﻿" + [head, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n");
+  const file = new File([text], `${name}-${new Date().toISOString().slice(0, 10)}.csv`, { type: "text/csv" });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: file.name }); return; }
+  } catch (e) { if (e.name === "AbortError") return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file); a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function exportTx() {
+  const rows = [];
+  for (const [vid, list] of Object.entries(S.activity)) for (const a of list)
+    rows.push([csvDate(a.date), a.type === 0 ? "מימוש" : a.type === 1 ? "טעינה" : a.type, a.amount, a.branch, vid, a.cancelled ? "כן" : "", a.ref]);
+  rows.sort((a, b) => b[0].localeCompare(a[0]));
+  exportCsv("tav-mimushim", ["תאריך", "סוג", "סכום", "סניף", "קוד תו", "בוטל", "אסמכתא"], rows);
+}
+function exportVouchers() {
+  const status = { active: "פעיל", empty: "נוצל", expired: "פג תוקף" };
+  const rows = S.vouchers.map(v => {
+    const list = S.activity[v.id] || [];
+    const used = list.filter(a => a.type === 0 && !a.cancelled).reduce((s, a) => s + a.amount, 0);
+    return [v.id, status[v.status] || v.status, v.original, v.balance, Math.round(used * 100) / 100, list.filter(a => a.type === 0).length, csvDate(v.created), csvDate(v.expires)];
+  });
+  exportCsv("tav-tavim", ["קוד תו", "סטטוס", "סכום מקורי", "יתרה", "סה\"כ מימושים", "מספר מימושים", "נוצר", "תוקף עד"], rows);
+}
+
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
   const s = e.target.closest("[data-scan]"); if (s) return openScan(s.dataset.scan);
@@ -533,6 +569,8 @@ $("phoneIn").onchange = () => { S.phone = cleanPhone($("phoneIn").value); save()
 $("otpForm").onsubmit = e => { e.preventDefault(); $("otpGo").dataset.step === "verify" ? verifyCode() : sendCode(); };
 $("otpCancel").onclick = closeOtp;
 $("otpResend").onclick = () => { $("otpGo").dataset.step = "send"; sendCode(); };
+$("exportTx").onclick = exportTx;
+$("exportVouchers").onclick = exportVouchers;
 $("wipeBtn").onclick = () => { $("wipeConfirm").hidden = false; };
 $("wipeNo").onclick = () => { $("wipeConfirm").hidden = true; };
 $("wipeYes").onclick = () => { S = blank(); save(); $("wipeConfirm").hidden = true; render(); showMsg("ok", "הנתונים נמחקו מהמכשיר"); };
