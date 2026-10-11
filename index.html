@@ -191,7 +191,7 @@ details[open]>summary::after{transform:rotate(90deg)}
           </div>
         </div>
       </details>
-      <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass.</p>
+      <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass. · גרסה 4</p>
     </div>
   </section>
 </div>
@@ -581,7 +581,15 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { closeScan(
 
 render();
 if (S.links.length && (!S.lastSync || Date.now() - S.lastSync > 30 * 60000)) sync(true);
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  // iPhone keeps the home-screen app alive in the background: check for a new version whenever it comes back,
+  // and reload once the new version takes over (unless the user is in the middle of something).
+  const hadSw = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadSw && !busy && $("otpSheet").hidden && $("scan").hidden) location.reload(); });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
+}
 </script>
 </body>
 </html>

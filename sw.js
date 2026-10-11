@@ -1,5 +1,5 @@
 // Offline shell: the app and its libraries load from cache so the code is available in the store without reception.
-const CACHE = "tav-wallet-v3";
+const CACHE = "tav-wallet-v4";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./icon.svg",
   "https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js",
@@ -23,9 +23,10 @@ self.addEventListener("fetch", e => {
   // Never cache the voucher API.
   if (e.request.method !== "GET" || url.hostname.endsWith("mltp.co.il")) return;
   // App page: network first so updates arrive, cache when offline.
+  // no-cache: revalidate with the server, otherwise GitHub Pages' max-age=600 keeps serving the old page.
   if (e.request.mode === "navigate") {
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request.url, { cache: "no-cache", credentials: "same-origin" })
         .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put("./index.html", copy)); return res; })
         .catch(() => caches.match("./index.html"))
     );

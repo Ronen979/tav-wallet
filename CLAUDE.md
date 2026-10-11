@@ -5,7 +5,7 @@ Personal PWA that shows the balance, redemption codes and purchase history of Ra
 ## Files
 - `index.html` – the whole app (Hebrew, RTL; CSS and JS inline). Barcode/QR via JsBarcode and qrcode-generator from cdnjs.
 - Settings has CSV export (UTF-8 BOM for Excel): all activity rows as returned by the API, and a per-voucher summary (original, balance, sum of purchases). Uses the share sheet on iPhone, download elsewhere.
-- `sw.js` – service worker, caches the app shell and libraries for offline use. Never caches the API. Bump `CACHE` when shipping changes.
+- `sw.js` – service worker, caches the app shell and libraries for offline use. Never caches the API. Bump `CACHE` and the "גרסה N" label in the footer of `index.html` together when shipping changes.
 - `manifest.webmanifest`, `icon.svg` – install-to-home-screen metadata.
 
 ## Multipass API (mapped 2026-10)
