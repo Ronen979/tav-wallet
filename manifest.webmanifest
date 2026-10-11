@@ -1,0 +1,15 @@
+{
+  "name": "ארנק התווים",
+  "short_name": "תווים",
+  "description": "יתרה וקודי מימוש של כל תווי הקנייה במקום אחד",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f2",
+  "theme_color": "#0f3d2a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0f6b43"/>
+  <path d="M112 168a24 24 0 0 1 24-24h240a24 24 0 0 1 24 24v44a44 44 0 0 0 0 88v44a24 24 0 0 1-24 24H136a24 24 0 0 1-24-24v-44a44 44 0 0 0 0-88z" fill="#ffffff"/>
+  <path d="M312 160v192" stroke="#0f6b43" stroke-width="10" stroke-dasharray="18 14"/>
+  <text x="212" y="290" font-family="Arial, sans-serif" font-size="110" font-weight="700" fill="#0f6b43" text-anchor="middle">₪</text>
+</svg>
