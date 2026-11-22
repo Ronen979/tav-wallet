@@ -80,9 +80,10 @@ label{font-weight:600;font-size:14px;display:block;margin-bottom:6px}
 .meta{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--muted);font-size:13px;margin-top:6px}
 .actions{display:flex;gap:10px;margin-top:14px}
 .actions button{flex:1}
-.others{display:flex;flex-direction:column;gap:10px}
-.row-v{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
-.row-v .num{font-size:20px;font-weight:700}
+.redeem{display:flex;flex-direction:column;gap:10px}
+.slip:not(.next){padding:14px}
+.slip:not(.next) .bal{font-size:24px}
+.slip:not(.next) .code{margin-top:10px;padding-top:10px}
 
 /* Lists */
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:6px 16px}
@@ -152,8 +153,7 @@ details[open]>summary::after{transform:rotate(90deg)}
         <div class="bar" aria-hidden="true"><i id="totalBar"></i></div>
       </div>
 
-      <div id="nextWrap"></div>
-      <div class="others" id="others"></div>
+      <div class="redeem" id="redeemList"></div>
 
       <div>
         <h2 style="margin-bottom:8px">קניות</h2>
@@ -193,7 +193,7 @@ details[open]>summary::after{transform:rotate(90deg)}
       </details>
     </div>
   </section>
-  <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass. · גרסה 5</p>
+  <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass. · גרסה 6</p>
 </div>
 
 <!-- Phone / OTP sheet -->
@@ -453,24 +453,19 @@ function render() {
     : `כל ${S.vouchers.length} התווים נוצלו · ${ils0.format(orig)} בסך הכול`;
   $("totalBar").style.width = orig ? (100 * total / orig).toFixed(1) + "%" : "0";
 
-  // next to use
-  const next = active[0];
-  if (next) {
-    const dl = daysLeft(next.expires);
-    $("nextWrap").innerHTML = `
-      <article class="slip next">
-        <div class="slip-head"><h2>לתשלום בקופה</h2>${dl < 60 ? `<span class="tag warn">פג בעוד ${dl} ימים</span>` : `<span class="tag">היתרה הקטנה ביותר</span>`}</div>
-        <div class="bal num">${esc(ils.format(next.balance))}</div>
-        <div class="meta"><span>תו ${esc(short(next.id))}</span><span>תוקף ${esc(dFmt.format(new Date(next.expires)))}</span></div>
-        <div class="code">${esc(next.id)}</div>
-        <div class="actions"><button class="btn" type="button" data-scan="${esc(next.id)}">הצגה לסריקה</button><button class="btn-ghost" type="button" data-copy="${esc(next.id)}">העתקת קוד</button></div>
+  // every redeemable voucher shows its code; the first (smallest balance) is the suggested one
+  $("redeemList").innerHTML = active.map((v, i) => {
+    const dl = daysLeft(v.expires);
+    const tag = dl < 60 ? `<span class="tag warn">פג בעוד ${dl} ימים</span>` : i === 0 ? `<span class="tag">היתרה הקטנה ביותר</span>` : "";
+    return `
+      <article class="slip${i === 0 ? " next" : ""}">
+        <div class="slip-head"><h2>${i === 0 ? "לתשלום בקופה" : `תו ${i + 1} מתוך ${active.length}`}</h2>${tag}</div>
+        <div class="bal num">${esc(ils.format(v.balance))}</div>
+        <div class="meta"><span>תו ${esc(short(v.id))}</span><span>תוקף ${esc(dFmt.format(new Date(v.expires)))}</span></div>
+        <div class="code">${esc(v.id)}</div>
+        <div class="actions"><button class="btn${i === 0 ? "" : "-ghost"}" type="button" data-scan="${esc(v.id)}">הצגה לסריקה</button><button class="btn-ghost" type="button" data-copy="${esc(v.id)}">העתקת קוד</button></div>
       </article>`;
-  } else {
-    $("nextWrap").innerHTML = `<div class="slip"><div class="empty">אין כרגע תו עם יתרה. כשתקנה תווים חדשים, מדביקים את ההודעה בהגדרות.</div></div>`;
-  }
-  $("others").innerHTML = active.slice(1).map(v => `
-    <div class="row-v"><div><div class="num">${esc(ils.format(v.balance))}</div><div class="meta" style="margin:0"><span>תו ${esc(short(v.id))}</span><span>תוקף ${esc(dFmt.format(new Date(v.expires)))}</span></div></div>
-    <button class="btn-ghost" type="button" data-scan="${esc(v.id)}">הצגה</button></div>`).join("");
+  }).join("") || `<div class="slip"><div class="empty">אין כרגע תו עם יתרה. כשתקנה תווים חדשים, מדביקים את ההודעה בהגדרות.</div></div>`;
 
   // transactions (uses only)
   const tx = [];
