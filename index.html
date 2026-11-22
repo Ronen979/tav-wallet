@@ -193,7 +193,7 @@ details[open]>summary::after{transform:rotate(90deg)}
       </details>
     </div>
   </section>
-  <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass. · גרסה 6</p>
+  <p class="foot">הנתונים נשמרים רק במכשיר הזה. המידע מגיע ישירות מ-Multipass. · גרסה 7</p>
 </div>
 
 <!-- Phone / OTP sheet -->
@@ -231,7 +231,8 @@ details[open]>summary::after{transform:rotate(90deg)}
 const API = "https://restservices.mltp.co.il/api/MyVouchers/";
 const COMPANY = 1290;
 const KEY = "tavwallet.v1";
-const LINK_RE = /https?:\/\/mycards\.mltp\.co\.il\/[^\s"'<>]+/g;
+// Stops at invisible direction marks, which copied Hebrew SMS text wraps around links.
+const LINK_RE = /https?:\/\/mycards\.mltp\.co\.il[/?][^\s"'<>​-‏‪-‮⁦-⁩]+/g;
 
 const $ = id => document.getElementById(id);
 const ils = new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", minimumFractionDigits: 2 });
@@ -242,9 +243,19 @@ const mFmt = new Intl.DateTimeFormat("he-IL", { month: "long", year: "numeric" }
 
 /* ---------- state ---------- */
 let S = load();
-function blank() { return { phone: "", links: [], latestLink: "", vouchers: [], activity: {}, activityAt: {}, lastSync: 0 }; }
+function blank() { return { phone: "", links: [], latestLink: "", pending: [], report: "", vouchers: [], activity: {}, activityAt: {}, lastSync: 0 }; }
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.links)) return Object.assign(blank(), s); } catch (e) {}
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.links)) {
+      // Up to v6 a link added after the one in use was saved but never loaded: treat the newest such link as pending.
+      if (!Array.isArray(s.pending)) {
+        const at = s.links.indexOf(s.latestLink);
+        s.pending = at >= 0 && at < s.links.length - 1 ? [s.links[s.links.length - 1]] : [];
+      }
+      return Object.assign(blank(), s);
+    }
+  } catch (e) {}
   return blank();
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -252,7 +263,7 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e
 /* ---------- API ---------- */
 async function api(path, body) {
   const r = await fetch(API + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error("השרת של Multipass החזיר שגיאה (" + r.status + ")");
+  if (!r.ok) throw Object.assign(new Error("השרת של Multipass החזיר שגיאה (" + r.status + ")"), { status: r.status });
   return r.json();
 }
 const getData = link => api("GetVouchersData", { token: link, companyId: COMPANY });
@@ -265,33 +276,43 @@ function addLinks(list) {
   for (const l of list) if (!S.links.includes(l)) { S.links.push(l); added++; }
   return added;
 }
+const TOO_MANY = "יותר מדי ניסיונות. כדאי לנסות שוב בעוד כמה דקות.";
+const isRedeemable = v => v.status === "active" && v.balance > 0;
 const isDate = s => s && !String(s).startsWith("0001");
 
-function applyData(d, link) {
-  const map = (v, status) => ({
+/*
+ * A link does not necessarily list every voucher of the phone, so results of all links are merged by voucher id.
+ * v.src is the link a voucher came from. It is removed only when that link answers without it.
+ */
+function applyData(results) {
+  const map = (v, status, src) => ({
     id: String(v.voucherId), balance: +v.currentBudget || 0, original: +v.originalBudget || 0,
-    created: v.creationDate, expires: v.expirationDate, name: v.policyName || "תו", status
+    created: v.creationDate, expires: v.expirationDate, name: v.policyName || "תו", status, src
   });
-  S.vouchers = [
-    ...(d.vouchers || []).map(v => map(v, "active")),
-    ...(d.emptyVouchers || []).map(v => map(v, "empty")),
-    ...(d.expiredVouchers || []).map(v => map(v, "expired")),
-  ];
-  S.latestLink = link;
-  if (!S.links.includes(link)) S.links.push(link);
+  const fresh = new Map(), answered = new Set(results.map(r => r.link));
+  for (const { d, link } of results) {
+    for (const [field, status] of [["vouchers", "active"], ["emptyVouchers", "empty"], ["expiredVouchers", "expired"]])
+      for (const raw of d[field] || []) { const v = map(raw, status, link); if (!fresh.has(v.id)) fresh.set(v.id, v); }
+  }
+  const kept = S.vouchers.map(v => ({ ...v, src: v.src || S.latestLink })).filter(v => !fresh.has(v.id) && !answered.has(v.src));
+  S.vouchers = [...fresh.values(), ...kept];
+  S.pending = S.pending.filter(l => !answered.has(l));
+  S.latestLink = results[0].link;
+  for (const l of answered) if (!S.links.includes(l)) S.links.push(l);
   S.lastSync = Date.now();
   save();
+  return new Set(fresh.keys());
 }
 
 /* Fetch history for vouchers whose balance changed since we last looked (or never looked). */
-async function refreshActivity(link) {
-  const todo = S.vouchers.filter(v => S.activityAt[v.id] === undefined || S.activityAt[v.id] !== v.balance);
+async function refreshActivity(links) {
+  const todo = S.vouchers.filter(v => links.has(v.src)).filter(v => S.activityAt[v.id] === undefined || S.activityAt[v.id] !== v.balance);
   let i = 0;
   async function worker() {
     while (i < todo.length) {
       const v = todo[i++];
       try {
-        const r = await api("GetVoucherActivity", { token: link, cardId: v.id, companyId: COMPANY });
+        const r = await api("GetVoucherActivity", { token: v.src, cardId: v.id, companyId: COMPANY });
         if (r.resultInfo && r.resultInfo.success && r.vouchers && r.vouchers[0]) {
           S.activity[v.id] = (r.vouchers[0].activity || []).map(a => ({
             date: a.activityDate, amount: +a.amount || 0, type: a.activityType,
@@ -310,27 +331,54 @@ async function refreshActivity(link) {
 /* ---------- sync flow ---------- */
 let busy = false, otpLink = "", otpMode = "mycards", regToken = "";
 
-/* auto = the check on app open: if a code is needed, keep showing saved data and wait for the user to tap refresh. */
+/*
+ * Every refresh asks all saved links, because a newer order can be visible only through its own link.
+ * A code is requested only for a newly added link, or when a voucher with balance could not be refreshed.
+ * auto = the check on app open: if a code is needed, keep showing saved data and wait for the user to tap refresh.
+ */
 async function sync(auto) {
   if (busy) return;
   if (!S.links.length) { render(); return; }
   busy = true; showMsg(); setSync(true, "בודק…");
   try {
-    const candidates = [S.latestLink, ...S.links.slice().reverse()].filter((l, i, a) => l && a.indexOf(l) === i);
-    let needOtp = null;
-    for (const [n, link] of candidates.entries()) {
-      if (n) setSync(true, `בודק קישור ${n + 1}/${candidates.length}`);
-      const d = await getData(link);
-      const id = d.resultInfo && d.resultInfo.resultId;
-      if (id === 0) { await finish(d, link); return; }
-      // Keep trying the other saved links: any one with a live session avoids the SMS code.
-      if ((id === 604 || id === 602) && !needOtp) needOtp = { link, mode: id === 602 ? "register" : "mycards" };
-      if (id === 429) throw new Error("יותר מדי ניסיונות. כדאי לנסות שוב בעוד כמה דקות.");
+    const redeemable = S.vouchers.filter(isRedeemable);
+    const order = [...new Set([...S.pending.slice().reverse(), S.latestLink, ...redeemable.map(v => v.src), ...S.links.slice().reverse()].filter(Boolean))];
+    const results = [], locked = new Map(), invalid = new Set();
+    let failure = "";
+    for (const [n, link] of order.entries()) {
+      setSync(true, `בודק קישור ${n + 1}/${order.length}`);
+      try {
+        const d = await getData(link);
+        const id = d.resultInfo && d.resultInfo.resultId;
+        if (id === 0) results.push({ d, link });
+        else if (id === 604 || id === 602) locked.set(link, id === 602 ? "register" : "mycards");
+        else if (id === 429) { failure = TOO_MANY; break; }
+        else invalid.add(link);
+      } catch (e) {
+        if (e.status === 429) { failure = TOO_MANY; break; }
+        failure = e.status ? e.message : "אין חיבור לרשת";
+        if (!e.status) break; // offline: no point trying the rest
+      }
     }
-    if (!needOtp) throw new Error("אף אחד מהקישורים לא תקין. אפשר להוסיף בהגדרות הודעת הזמנה עדכנית.");
-    otpLink = needOtp.link; otpMode = needOtp.mode;
-    if (auto === true && S.vouchers.length) { showMsg("info", "מוצגים הנתונים השמורים. כדי לעדכן, לוחצים על רענון ומקבלים קוד ב-SMS."); return; }
-    openOtp();
+
+    const badNew = S.pending.some(l => invalid.has(l));
+    S.pending = S.pending.filter(l => !invalid.has(l));
+    S.report = `בבדיקה האחרונה: ${results.length} נטענו, ${locked.size} דורשים קוד, ${invalid.size} לא תקינים`;
+    const seen = results.length ? await finish(results) : new Set();
+    save(); render();
+    if (failure) { showMsg("err", failure); return; }
+
+    const stale = S.vouchers.filter(v => isRedeemable(v) && !seen.has(v.id));
+    let target = S.pending.slice().reverse().find(l => locked.has(l));
+    if (!target && (stale.length || !results.length))
+      target = [...stale.map(v => v.src || S.latestLink), ...order].find(l => locked.has(l));
+
+    if (target) {
+      otpLink = target; otpMode = locked.get(target);
+      if (auto === true && S.vouchers.length) showMsg("info", "חלק מהתווים עשויים להיות חסרים או לא מעודכנים. לוחצים על רענון ומקבלים קוד ב-SMS.");
+      else openOtp();
+    } else if (badNew) showMsg("err", "הקישור החדש לא תקין. כדאי להעתיק שוב את כל הודעת ההזמנה.");
+    else if (!results.length) showMsg("err", "אף אחד מהקישורים לא תקין. אפשר להוסיף בהגדרות הודעת הזמנה עדכנית.");
   } catch (e) {
     showMsg("err", e.message || "אין חיבור לרשת");
   } finally {
@@ -338,12 +386,22 @@ async function sync(auto) {
   }
 }
 
-async function finish(d, link) {
-  applyData(d, link);
+async function finish(results) {
+  const seen = applyData(results);
   render();
   setSync(true, "טוען היסטוריה…");
-  await refreshActivity(link);
+  await refreshActivity(new Set(results.map(r => r.link)));
   render();
+  return seen;
+}
+
+/* After a code: otpLink is done (link is its fresh replacement). Say so if other vouchers still wait for a code. */
+async function finishOtp(d, link) {
+  S.pending = S.pending.filter(l => l !== otpLink);
+  const seen = await finish([{ d, link }]);
+  if (S.pending.length || S.vouchers.some(v => isRedeemable(v) && !seen.has(v.id)))
+    showMsg("info", "הקישור עודכן. לוחצים שוב על רענון כדי לבדוק את שאר התווים.");
+  else showMsg("ok", "התווים עודכנו");
 }
 
 function openOtp() {
@@ -380,7 +438,7 @@ async function sendCode() {
       $("otpIn").value = ""; $("otpIn").focus();
     } else if (r.resultCode === 3) {
       closeOtp(); const d = await getData(otpLink);
-      if (d.resultInfo.resultId === 0) await finish(d, otpLink); else throw new Error(d.resultInfo.resultMessage);
+      if (d.resultInfo.resultId === 0) await finishOtp(d, otpLink); else throw new Error(d.resultInfo.resultMessage);
     } else if (r.resultCode === 2) {
       $("phoneStep").hidden = false; otpError("המספר הזה לא תואם למספר שמשויך לתווים.");
     } else {
@@ -407,8 +465,7 @@ async function verifyCode() {
       closeOtp(); setSync(true, "טוען תווים…");
       const d = await getData(link);
       if (d.resultInfo.resultId !== 0) throw new Error(d.resultInfo.resultMessage || "טעינת התווים נכשלה");
-      await finish(d, link);
-      showMsg("ok", "התווים עודכנו");
+      await finishOtp(d, link);
     } else if (id === 610) otpError("הקוד לא תקין. כדאי לבדוק שוב את ה-SMS.");
     else if (id === 402) otpError("יותר מדי ניסיונות. אפשר לבקש קוד חדש.");
     else otpError((r.resultInfo && r.resultInfo.resultMessage) || "האימות נכשל");
@@ -440,10 +497,10 @@ function render() {
   $("smsIn").placeholder = S.links.length ? `שמורים ${S.links.length} קישורים. אפשר ללחוץ "התחברות" או להדביק הודעה נוספת` : "https://mycards.mltp.co.il/...";
   if (!busy) setSync(false);
   $("phoneIn").value = S.phone;
-  $("linkInfo").textContent = S.links.length ? `שמורים ${S.links.length} קישורי הזמנה` : "";
+  $("linkInfo").textContent = S.links.length ? `שמורים ${S.links.length} קישורי הזמנה${S.report ? " · " + S.report : ""}` : "";
   if (!has) return;
 
-  const active = S.vouchers.filter(v => v.status === "active" && v.balance > 0).sort((a, b) => a.balance - b.balance || new Date(a.expires) - new Date(b.expires));
+  const active = S.vouchers.filter(isRedeemable).sort((a, b) => a.balance - b.balance || new Date(a.expires) - new Date(b.expires));
   const total = active.reduce((s, v) => s + v.balance, 0);
   const orig = S.vouchers.reduce((s, v) => s + v.original, 0);
   const t = ils.format(total).replace(/\s?₪/, "");
@@ -484,7 +541,7 @@ function render() {
   $("txList").innerHTML = html || `<div class="empty">ההיסטוריה תופיע אחרי הרענון</div>`;
 
   // used vouchers
-  const used = S.vouchers.filter(v => !(v.status === "active" && v.balance > 0)).sort((a, b) => new Date(b.created) - new Date(a.created));
+  const used = S.vouchers.filter(v => !isRedeemable(v)).sort((a, b) => new Date(b.created) - new Date(a.created));
   $("usedBox").hidden = !used.length;
   $("usedSum").textContent = `תווים מנוצלים (${used.length})`;
   $("usedList").innerHTML = used.map(v => {
@@ -560,6 +617,9 @@ $("onboardBtn").onclick = () => {
 $("addBtn").onclick = () => {
   const links = extractLinks($("smsAdd").value);
   if (!links.length) { showMsg("err", "לא נמצא בטקסט קישור של mycards.mltp.co.il"); return; }
+  const unsaved = links.filter(l => !S.links.includes(l));
+  // Pasting a link that is already saved is a request to load it again.
+  for (const l of unsaved.length ? unsaved : links.slice(-1)) S.pending = [...S.pending.filter(p => p !== l), l];
   const n = addLinks(links); save(); $("smsAdd").value = "";
   showMsg("ok", n ? `נוספו ${n} קישורים` : "הקישורים כבר היו שמורים"); sync();
 };
